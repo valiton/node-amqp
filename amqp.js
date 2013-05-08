@@ -116,7 +116,8 @@ var classes = {};
 
 var maxFrameBuffer = 131072; // 128k, same as rabbitmq (which was
                              // copying qpid)
-
+var emptyFrameSize = 8;      // This is from the javaclient
+var maxFrameSize = maxFrameBuffer - emptyFrameSize;
 // An interruptible AMQP parser.
 //
 // type is either 'server' or 'client'
@@ -169,8 +170,7 @@ function AMQPParser (version, type) {
   function frame(data) {
     var fb = frameBuffer;
     var needed = fb.length - fb.used;
-    var sourceEnd = (fb.length > data.length) ? data.length : fb.length;
-    data.copy(fb, fb.used, 0, sourceEnd);
+    data.copy(fb, fb.used, 0, data.length);
     fb.used += data.length;
     if (data.length > needed) {
       return frameEnd(data.slice(needed));
@@ -231,13 +231,14 @@ AMQPParser.prototype.throwError = function (error) {
 AMQPParser.prototype.execute = function (data) {
   // This function only deals with dismantling and buffering the frames.
   // It delegates to other functions for parsing the frame-body.
-  debug('execute: ' + data.toString('hex'));
+  debug('execute: ' + data.toString());
   this.parse = this.parse(data);
 };
 
 
 // parse Network Byte Order integers. size can be 1,2,4,8
 function parseInt (buffer, size) {
+  var int = 0;
   switch (size) {
     case 1:
       return buffer[buffer.read++];
@@ -336,7 +337,7 @@ function parseValue (buffer) {
     case AMQPTypes.ARRAY:
       var len = parseInt(buffer, 4);
       var end = buffer.read + len;
-      var arr = [];
+      var arr = new Array();
 
       while (buffer.read < end) {
         arr.push(parseValue(buffer));
@@ -693,7 +694,7 @@ function serializeArray (b, arr) {
   b.used += 4; // sizeof long
   var startIndex = b.used;
 
-  var len = arr.length;
+  len = arr.length;
   for (var i = 0; i < len; i++) {
     serializeValue(b, arr[i]);
   }
@@ -731,7 +732,7 @@ function serializeFields (buffer, fields, args, strict) {
         bitIndex++;
 
         if (!fields[i+1] || fields[i+1].domain != 'bit') {
-          //debug('SET bit field ' + field.name + ' 0x' + bitField.toString(16));
+          debug('SET bit field ' + field.name + ' 0x' + bitField.toString(16));
           buffer[buffer.used++] = bitField;
           bitField = 0;
           bitIndex = 0;
@@ -954,7 +955,7 @@ function Connection (connectionArgs, options, readyCallback) {
 
     // Restart the heartbeat to the server
     self._outboundHeartbeatTimerReset();
-  });
+  })
 }
 util.inherits(Connection, net.Stream);
 exports.Connection = Connection;
@@ -993,7 +994,7 @@ function urlOptions(connectionString) {
   }
   opts.ssl = ('amqps' === scheme);
   opts.host = url.hostname;
-  opts.port = url.port || defaultPorts[scheme];
+  opts.port = url.port || defaultPorts[scheme]
   if (url.auth) {
     var auth = url.auth.split(':');
     auth[0] && (opts.login = auth[0]);
@@ -1021,7 +1022,7 @@ Connection.prototype.setOptions = function (options) {
 };
 
 Connection.prototype.setImplOptions = function (options) {
-  var o = {};
+  var o = {}
   mixin(o, defaultImplOptions, options || {});
   this.implOptions = o;
 };
@@ -1046,7 +1047,7 @@ Connection.prototype.connect = function () {
     }else{
       this.hosti = (this.hosti+1) % this.options.host.length;
     }
-    connectToHost = this.options.host[this.hosti];
+    connectToHost = this.options.host[this.hosti]
   }
 
   // Connect socket
@@ -1165,7 +1166,7 @@ Connection.prototype._onMethod = function (channel, method, args) {
 };
 
 Connection.prototype.heartbeat = function () {
-  if(this.writable) this.write(new Buffer([8,0,0,0,0,0,0,206]));
+  this.write(new Buffer([8,0,0,0,0,0,0,206]));
 };
 
 Connection.prototype._outboundHeartbeatTimerReset = function () {
@@ -1173,7 +1174,7 @@ Connection.prototype._outboundHeartbeatTimerReset = function () {
     clearTimeout(this._outboundHeartbeatTimer);
     this._outboundHeartbeatTimer = null;
   }
-  if (this.writable && this.options.heartbeat) {
+  if (this.options.heartbeat) {
     var self = this;
     this._outboundHeartbeatTimer = setTimeout(function () {
       self.heartbeat();
@@ -1191,8 +1192,7 @@ Connection.prototype._inboundHeartbeatTimerReset = function () {
     var self = this;
     var gracePeriod = 2 * this.options.heartbeat;
     this._inboundHeartbeatTimer = setTimeout(function () {
-      if(self.readable)
-        self.emit('error', new Error('no heartbeat or data in last ' + gracePeriod + ' seconds'));
+      self.emit('error', new Error('no heartbeat or data in last ' + gracePeriod + ' seconds'));
     }, gracePeriod * 1000);
   }
 };
@@ -1248,7 +1248,7 @@ Connection.prototype._sendMethod = function (channel, method, args) {
 // - priority (0-9)
 // - correlationId
 // - replyTo
-// - expiration
+// - experation
 // - messageId
 // - timestamp
 // - userId
@@ -1337,7 +1337,7 @@ Connection.prototype._sendBody = function (channel, body, properties) {
     pos += sz;
   }
   return;
-};
+}
 
 Connection.prototype._bodyToBuffer = function (body) {
   // Handles 3 cases
@@ -1479,7 +1479,7 @@ Message.prototype.reject = function (requeue){
       { deliveryTag: this.deliveryTag
       , requeue: requeue ? true : false
       });
-};
+}
 
 // This class is not exposed to the user. Queue and Exchange are subclasses
 // of Channel. This just provides a task queue.
@@ -1496,7 +1496,7 @@ util.inherits(Channel, events.EventEmitter);
 
 Channel.prototype.closeOK = function() {
     this.connection._sendMethod(this.channel, methods.channelCloseOk, {reserved1: ""});
-};
+}
 
 Channel.prototype.reconnect = function () {
   this.connection._sendMethod(this.channel, methods.channelOpen, {reserved1: ""});
@@ -1549,12 +1549,12 @@ Channel.prototype._handleTaskReply = function (channel, method, args) {
 Channel.prototype._onChannelMethod = function(channel, method, args) {
     switch (method) {
     case methods.channelCloseOk:
-        delete this.connection.channels[this.channel];
-        this.state = 'closed';
+        delete this.connection.channels[this.channel]
+        this.state = 'closed'
     default:
         this._onMethod(channel, method, args);
     }
-};
+}
 
 Channel.prototype.close = function() { 
   this.state = 'closing';
@@ -1563,7 +1563,7 @@ Channel.prototype.close = function() {
                                  'replyCode': 200,
                                  'classId': 0,
                                  'methodId': 0});
-};
+}
 
 function Queue (connection, channel, name, options, callback) {
   Channel.call(this, connection, channel);
@@ -1601,7 +1601,7 @@ Queue.prototype.subscribeRaw = function (/* options, messageListener */) {
   options['state'] = 'opening';
   this.consumerTagOptions[consumerTag] = options;
 
-  if (options.prefetchCount != undefined) {
+  if (options.prefetchCount) {
     self.connection._sendMethod(self.channel, methods.basicQos,
         { reserved1: 0
         , prefetchSize: 0
@@ -1685,7 +1685,7 @@ Queue.prototype.subscribe = function (/* options, messageListener */) {
     var b;
 
     if (isJSON) {
-      b = "";
+      b = ""
     } else {
       b = new Buffer(m.size);
       b.used = 0;
@@ -1889,7 +1889,7 @@ Queue.prototype.purge = function() {
     self.connection._sendMethod(self.channel, methods.queuePurge,
                                  { reserved1 : 0,
                                  queue: self.name,
-                                 noWait: false});
+                                 noWait: false})
   });
 };
 
@@ -1982,7 +1982,7 @@ Queue.prototype._onMethod = function (channel, method, args) {
     
     case methods.channelCloseOk:
       this.connection.queueClosed(this.name);
-      this.emit('close');
+      this.emit('close')
       break;
     
     case methods.basicDeliver:
@@ -2007,10 +2007,6 @@ Queue.prototype._onContentHeader = function (channel, classInfo, weight, propert
   this.currentMessage.size = size;
 
   this.emit('rawMessage', this.currentMessage);
-  if (size === 0) {
-    // If the message has no body, directly emit 'end'
-    this.currentMessage.emit('end');
-  }
 };
 
 Queue.prototype._onContent = function (channel, data) {
@@ -2204,7 +2200,7 @@ Exchange.prototype._onMethod = function (channel, method, args) {
 // - priority (0-9)
 // - correlationId
 // - replyTo
-// - expiration
+// - experation
 // - messageId
 // - timestamp
 // - userId
